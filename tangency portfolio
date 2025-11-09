@@ -1,0 +1,354 @@
+# 1.4. TANGENCY PORTFOLIO
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+# DATOS
+
+mus = np.array([0.15, 0.10, 0.08, 0.06])
+
+sigmas = np.array([0.15, 0.10, 0.07, 0.05])
+
+corr = np.array([
+    [1.00, 0.50, 0.20, 0.00],
+    [0.50, 1.00, 0.20, 0.00],
+    [0.20, 0.20, 1.00, 0.00],
+    [0.00, 0.00, 0.00, 1.00]
+])
+
+n = len(mus)
+
+# RESTRICCIONES
+
+long_only = tuple((0, 1) for _ in range(n))
+cons1 = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1},)
+
+# FUNCIONES
+
+def portfolio_return(x):
+    return x @ mus
+
+def funcion_objetivo(x):
+    return -(x @ mus)
+
+def portfolio_varianza(x): 
+    return x @ Sigma @ x
+
+def portfolio_volatility(x):
+    return np.sqrt(x @ Sigma @ x)
+
+def portfolio_sharpe(mu, sigma):
+    return (mu - rf) / sigma
+
+def information_ratio(x, mu, x_benchmark, Sigma):
+    Rp = x @ mu
+    Rb = x_benchmark @ mu
+    d = x - x_benchmark
+    TEV = np.sqrt(d @ Sigma @ d)
+    
+    if TEV == 0:
+        return 0.0
+    else:
+        return (Rp - Rb) / TEV
+
+# 1) CALCULA LA CARTERA TANGENTE
+
+lista_rf = [0.02, 0.03, 0.04]
+
+diag = np.diag(sigmas)
+Sigma = diag @ corr @ diag
+invSigma = np.linalg.inv(Sigma)
+
+# CARTERA TANGENTE DE ACTIVOS RIESGOSOS
+
+filas = [f"x*{i+1}" for i in range(n)] + ["mu", "sigma", "sharpe"]
+tabla = pd.DataFrame(index=filas)
+
+for rf in lista_rf:
+
+    v = invSigma @ (mus - rf * np.ones(n))
+    x_tangente = v / v.sum()
+    mu_tangente = x_tangente @ mus
+    sigma_tangente = np.sqrt(x_tangente @ Sigma @ x_tangente)
+    sharpe_tangente = portfolio_sharpe(mu_tangente, sigma_tangente)
+
+    datos = np.append(x_tangente, [mu_tangente, sigma_tangente, sharpe_tangente])
+    tabla[f"RF = {int(rf*100)}%"] = datos
+    
+# TABLA CARTERA TANGENTE
+
+tabla = tabla * 100
+print("\nCartera tangente o de mercado (en %):")
+print(tabla.round(3))
+
+# EXPLICACIÓN:
+    
+# Si sube RF, la frontera eficiente se “estrecha” y la cartera tangente 
+# debe asumir más riesgo para seguir siendo la de máximo Sharpe. 
+# Por eso aumenta la exposición a activos de alta volatilidad 
+# y se reduce la de activos conservadores.
+
+# 2) TRACKING ERROR VOLATILITY (TEV)
+
+rf = 0.03
+
+# BENCHMARK
+
+x_benchmark = np.array([0.60, 0.30, 0.10, 0.00])
+
+def TEV(x, b, Sigma):
+    d = x - b
+    TEV = np.sqrt(d @ Sigma @ d)
+    return TEV
+
+# OPTIMIZAR TEV CON RESTRICCIÓN LONG-ONLY Y SUMA 1
+
+# 2a) MINIMIZAR EL TEV
+
+def minimizar_TEV(x, b, Sigma):
+    return 0.5 * x @ Sigma @ x - x @ Sigma @ b
+
+x0 = x_benchmark.copy()
+
+resultado_minimizar = minimize(minimizar_TEV, x0, args=(x_benchmark, Sigma), method='SLSQP', bounds=long_only, constraints=cons1)
+
+if not resultado_minimizar.success:
+    print("La optimización no encontró solución.")
+
+x_min_TEV = resultado_minimizar.x.round(4)
+TEV_min = TEV(x_min_TEV, x_benchmark, Sigma)
+
+print("\nResultado QP - minimizar TEV (long-only, suma=1):")
+print("x*:", x_min_TEV)
+print("Tracking Error (TEV):", float(np.round(TEV_min, 6)))
+print("El resultado de minimizar el TEV da el Benchmark")
+
+# 2b) MAXIMIZAR EL TEV
+
+# CAMBIAMOS EL SIGNO A LA FUNCIÓN OBJETIVO
+
+def maximizar_TEV(x, b, Sigma):
+    return - (0.5 * x @ Sigma @ x - x @ Sigma @ b)
+
+x0 = np.array([0.2, 0.2, 0.2, 0.4]) # PARA QUE NO COJA UN ÓPTIMO LOCAL
+
+resultado_maximizar = minimize(maximizar_TEV, x0, args=(x_benchmark, Sigma), bounds=long_only, constraints=cons1)
+
+if not resultado_maximizar.success:
+    print("La optimización no encontró solución.")
+
+x_max_TEV = np.round(resultado_maximizar.x, 4)
+TEV_max = TEV(x_max_TEV, x_benchmark, Sigma)
+
+print("\nResultado QP - maximizar TEV (long-only, suma=1):")
+print("x*:", x_max_TEV)
+print("Tracking Error (TEV):", float(np.round(TEV_max, 6)))
+print("Maximizar TEV es sinónimo de invertir 100% en el activo que el benchmark ignora y que aporta más volatilidad no correlacionada. (Activo 4)")
+
+# GRÁFICO COMPARATIVO
+
+plt.style.use('dark_background')
+
+activos = ['Activo 1', 'Activo 2', 'Activo 3', 'Activo 4']
+
+x = np.arange(len(activos))
+width = 0.25
+
+fig, ax = plt.subplots(figsize=(8,5))
+
+ax.bar(x - width, x_benchmark, width, label='Benchmark', color='skyblue')
+ax.bar(x, x_min_TEV, width, label='Min TEV', color='green')
+ax.bar(x + width, x_max_TEV, width, label='Max TEV', color='orange')
+
+ax.set_ylabel('Peso en cartera')
+ax.set_title('Benchmark vs Min TEV vs Max TEV')
+ax.set_xticks(x)
+ax.set_xticklabels(activos)
+ax.set_ylim(0,1)
+ax.legend()
+
+plt.show()
+
+# 3) CALCULA LA CARTERA QUE MAXIMIZA EL INFORMATION RATIO
+
+def maximizar_IR(x, mu, x_benchmark, Sigma):
+    return - information_ratio(x, mu, x_benchmark, Sigma)
+
+# CONDICIÓN INICIAL
+
+x0 = np.array([0.25, 0.25, 0.25, 0.25])
+
+resultado_IR = minimize(maximizar_IR, x0, args=(mus, x_benchmark, Sigma),method='SLSQP', bounds=long_only, constraints=cons1)
+
+if not resultado_IR.success:
+    print("La optimización no encontró solución.")
+
+x_max_IR = resultado_IR.x.round(4)
+IR_optimo = information_ratio(x_max_IR, mus, x_benchmark, Sigma)
+
+print("\nCartera que maximiza el Information Ratio:")
+print("x*:", x_max_IR)
+print("Information Ratio:", float(np.round(IR_optimo,6)))
+
+# TABLA COMPARATIVA DE TODAS LAS CARTERAS
+
+carteras = {
+    "Benchmark": x_benchmark,
+    "Min TEV": x_min_TEV,
+    "Max TEV": x_max_TEV,
+    "Max IR": x_max_IR
+    }
+
+tabla_dict = {}
+
+for nombre, x in carteras.items():
+    tabla_dict[nombre] = {
+        "x1": x[0],
+        "x2": x[1],
+        "x3": x[2],
+        "x4": x[3],
+        "Rendimiento": portfolio_return(x),
+        "Volatilidad": portfolio_volatility(x),
+        "Sharpe Ratio": portfolio_sharpe(portfolio_return(x), portfolio_volatility(x)),
+        "Information Ratio": information_ratio(x, mus, x_benchmark, Sigma)
+    }
+
+tabla_metricas = pd.DataFrame(tabla_dict)*100
+print("\nResumen comparativo de todas las carteras (en %):")
+print(tabla_metricas.round(3))
+
+# 4) RETETIR APARTADOS 2) Y 3) INCORPORANDO LA RESTRICCIÓN X ENTRE 10% Y 50%
+
+print("RESULTADOS INCORPORANDO LA RESTRICCIÓN x entre (10% - 50%):")
+
+limite_x = tuple((0.1, 0.5) for _ in range(n))
+
+# COPIAMOS TODO Y OPTIMIZAMOS CON RESTRICCION LIMITE_X EN LUGAR DE LONG-ONLY
+
+# 2a) MINIMIZAR EL TEV
+
+def minimizar_TEV(x, b, Sigma):
+    return 0.5 * x @ Sigma @ x - x @ Sigma @ b
+
+x0 = x_benchmark.copy()
+
+resultado_minimizar = minimize(minimizar_TEV, x0, args=(x_benchmark, Sigma), method='SLSQP', bounds=limite_x, constraints=cons1)
+
+if not resultado_minimizar.success:
+    print("La optimización no encontró solución.")
+
+x_min_TEV = resultado_minimizar.x.round(4)
+TEV_min = TEV(x_min_TEV, x_benchmark, Sigma)
+
+print("\nResultado QP - minimizar TEV (long-only, suma=1, x entre (10% - 50%)):")
+print("x*:", x_min_TEV)
+print("Tracking Error (TEV):", float(np.round(TEV_min, 6)))
+print("El resultado de minimizar el TEV da el Benchmark")
+
+# 2b) MAXIMIZAR EL TEV
+
+# CAMBIAMOS EL SIGNO A LA FUNCIÓN OBJETIVO
+
+def maximizar_TEV(x, b, Sigma):
+    return - (0.5 * x @ Sigma @ x - x @ Sigma @ b)
+
+x0 = np.array([0.2, 0.2, 0.2, 0.4]) # PARA QUE NO COJA UN ÓPTIMO LOCAL
+
+resultado_maximizar = minimize(maximizar_TEV, x0, args=(x_benchmark, Sigma), bounds=limite_x, constraints=cons1)
+
+if not resultado_maximizar.success:
+    print("La optimización no encontró solución.")
+
+x_max_TEV = np.round(resultado_maximizar.x, 4)
+TEV_max = TEV(x_max_TEV, x_benchmark, Sigma)
+
+print("\nResultado QP - maximizar TEV (long-only, suma=1, x entre (10% - 50%)):")
+print("x*:", x_max_TEV)
+print("Tracking Error (TEV):", float(np.round(TEV_max, 6)))
+print("Maximizar TEV es sinónimo de invertir 100% en el activo que el benchmark ignora y que aporta más volatilidad no correlacionada. (El 4)")
+
+# GRÁFICO COMPARATIVO
+
+plt.style.use('dark_background')
+
+activos = ['Activo 1', 'Activo 2', 'Activo 3', 'Activo 4']
+
+x = np.arange(len(activos))
+width = 0.25
+
+fig, ax = plt.subplots(figsize=(8,5))
+
+ax.bar(x - width, x_benchmark, width, label='Benchmark', color='skyblue')
+ax.bar(x, x_min_TEV, width, label='Min TEV', color='green')
+ax.bar(x + width, x_max_TEV, width, label='Max TEV', color='orange')
+
+ax.set_ylabel('Peso en cartera')
+ax.set_title('Benchmark vs Min TEV vs Max TEV + x entre (10% - 50%)')
+ax.set_xticks(x)
+ax.set_xticklabels(activos)
+ax.set_ylim(0,1)
+ax.legend()
+
+plt.show()
+
+# 3) CALCULA LA CARTERA QUE MAXIMIZA EL INFORMATION RATIO
+
+def maximizar_IR(x, mu, x_benchmark, Sigma):
+    return - information_ratio(x, mu, x_benchmark, Sigma)
+
+# CONDICIÓN INICIAL
+
+x0 = np.array([0.25, 0.25, 0.25, 0.25])
+
+resultado_IR = minimize(maximizar_IR, x0, args=(mus, x_benchmark, Sigma),method='SLSQP', bounds=limite_x, constraints=cons1)
+
+if not resultado_IR.success:
+    print("La optimización no encontró solución")
+
+x_max_IR = resultado_IR.x.round(4)
+IR_optimo = information_ratio(x_max_IR, mus, x_benchmark, Sigma)
+
+print("\nCartera que maximiza el Information Ratio:")
+print("x*:", x_max_IR)
+print("Information Ratio:", float(np.round(IR_optimo,6)))
+
+# TABLA COMPARATIVA DE TODAS LAS CARTERAS
+
+carteras = {
+    "Benchmark": x_benchmark,
+    "Min TEV": x_min_TEV,
+    "Max TEV": x_max_TEV,
+    "Max IR": x_max_IR
+    }
+
+tabla_dict = {}
+
+for nombre, x in carteras.items():
+    tabla_dict[nombre] = {
+        "x1": x[0],
+        "x2": x[1],
+        "x3": x[2],
+        "x4": x[3],
+        "Rendimiento": portfolio_return(x),
+        "Volatilidad": portfolio_volatility(x),
+        "Sharpe Ratio": portfolio_sharpe(portfolio_return(x), portfolio_volatility(x)),
+        "Information Ratio": information_ratio(x, mus, x_benchmark, Sigma)
+    }
+
+tabla_metricas = pd.DataFrame(tabla_dict)*100
+print("\nResumen comparativo de todas las carteras (en %) (x entre (10% - 50%)):")
+print(tabla_metricas.round(3))
+
+# CON LA RESTRICCIÓN X en 10% - 50% NO HAY NINGUNA CARTERA CON IR > 0
+
+# 5) LA DOMINANCIA SEGÚN IR IMPLICA DOMINANCIA SEGÚN SR?
+
+# SR mide rentabilidad ajustada por riesgo total respecto a RF.
+# IR mide rentabilidad ajustada por riesgo relativo al benchmark.
+
+# IR DEPENDE DEL RENDIMIENTO RELATIVO Y DESVIACION CON RESPECTO AL BENCHMARK
+# SR DEPENDE DEL RENDIMIENTO ABSOLUTO Y VOL TOTAL
+# ES POSIBLE QUE UNA CARTERA TENGA MAYOR IR PERO MENOR SR CONMPARADA CON OTRA
+# LA DOMINANCIA SEGUN IR NO IMPLICA DOMINANCIA EN SR.
