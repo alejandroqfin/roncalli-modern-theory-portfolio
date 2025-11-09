@@ -1,0 +1,289 @@
+# EJERCICIO 1.3. SHARPE RATIO
+
+import numpy as np
+import pandas as pd
+import math
+
+# 1) RATIO DE SHARPE
+
+def sharpe_ratio(mu, sigma, rf):
+    if sigma == 0:
+        raise ValueError("¡El activo es RF!")
+    return (mu - rf) / sigma
+
+# 2) RATIO DE SHARPE PARA UNA CARTERA CON 2 ACTIVOS
+
+def sharpe_ratio_2(x1, mu1, mu2, sigma1, sigma2, rho, rf):
+    # Caso especial: activo 2 es RF
+    if sigma2 == 0 and np.isclose(mu2, rf):
+        SR1 = sharpe_ratio(mu1, sigma1, rf)
+        SR_p = np.sign(x1) * SR1 if x1 != 0 else 0
+        
+        print(f"SR1 = {SR1:.4f}, SR2 = RF")
+        print(f"Sharpe de la cartera = {SR_p:.4f}")
+        if x1 != 0:
+            print(f"SR cartera = signo(x1) × SR1 = {np.sign(x1)} × {SR1:.4f}")
+        return SR_p
+    
+    # Caso general
+    x2 = 1 - x1
+    mu_p = x1 * mu1 + x2 * mu2
+    sigma_p = np.sqrt(x1**2 * sigma1**2 + x2**2 * sigma2**2 + 2 * x1 * x2 * rho * sigma1 * sigma2)
+    
+    if sigma_p == 0:
+        raise ValueError("¡La cartera es RF!")
+
+    SR1 = sharpe_ratio(mu1, sigma1, rf)
+    SR2 = sharpe_ratio(mu2, sigma2, rf)
+    SR_p = (mu_p - rf) / sigma_p
+
+    print(f"SR1 = {SR1:.4f}, SR2 = {SR2:.4f}")
+    print(f"Sharpe de la cartera = {SR_p:.4f}")
+
+    return SR_p
+
+# 3) CONSIDERAMOS QUE EL ACTIVO 2 = RF
+
+# PARÁMETROS DE EJEMPLO (CASO GENERAL)
+rf = 0.03
+mu1, mu2 = 0.08, 0.12
+sigma1, sigma2 = 0.10, 0.20
+rho = 0.2
+x1 = -0.4
+
+print("Caso general:\n")
+sharpe_ratio_2(x1, mu1, mu2, sigma1, sigma2, rho, rf)
+
+# PARÁMETROS DE EJEMPLO (CASO ACTIVO 2 = RF)
+mu2 = rf
+sigma2 = 0.0
+rho = 0
+x1 = -0.6
+
+print("\nCaso con activo 2 = RF:")
+sharpe_ratio_2(x1, mu1, mu2, sigma1, sigma2, rho, rf)
+
+# 4) RATIO DE SHARPE DE UNA CARTERA CON N ACTIVOS
+
+def sharpe_ratio_n(mu, sigma, x, rf):
+    mu_p = np.sum(x * mu)
+    sigma_p = np.sqrt(np.sum((x * sigma)**2))
+    return (mu_p - rf) / sigma_p
+
+# RATIO DE SHARPE DE UNA CARTERA EQUIPONDERADA CON X = 1/N
+# Particularidad: no depende de x
+
+def sharpe_ratio_equiponderada(mu, sigma, rf):
+    num = np.sum(mu - rf)
+    den = np.sqrt(np.sum(sigma**2))
+    if den == 0:
+        raise ValueError("Denominador 0: cartera libre de riesgo.")
+    return num / den
+
+# EJEMPLO
+
+mu = np.array([0.08, 0.10, 0.12])
+sigma = np.array([0.15, 0.20, 0.25])
+rf = 0.03
+n = len(mu)
+x = np.repeat(1/n, n)
+
+print("\nSharpe Ratio cartera equiponderada:")
+print(sharpe_ratio_equiponderada(mu, sigma, rf))
+print(sharpe_ratio_n(mu, sigma, x, rf))
+
+# 5) RATIO DE SHARPE DE LA CARTERA COMO COMBINACION LINEAL
+
+def sharpe_ratio_combinacion(mu, sigma, rf):
+    
+    SR_i = (mu - rf) / sigma
+    x = sigma / np.sqrt(np.sum(sigma**2))
+    SR_port = np.sum(x * SR_i)
+    
+    return SR_port, x, SR_i
+
+# EJEMPLO
+
+mu = np.array([0.08, 0.10, 0.12])
+sigma = np.array([0.15, 0.20, 0.25])
+rf = 0.03
+
+SR_port, x, SR_i = sharpe_ratio_combinacion(mu, sigma, rf)
+
+print("\nSharpe Ratio como combinacion lineal:")
+print(f"SR individuales: {SR_i.round(4)}")
+print(f"Pesos x_i: {x.round(4)}")
+print(f"Sharpe Ratio cartera: {SR_port:.4f}")
+
+# MISMO CASO PERO EL SR COMO INPUT
+
+def sharpe_ratio_combinacion_2(sigma, SR):
+    
+    x = sigma / np.sqrt(np.sum(sigma**2))
+    SR_port = np.sum(x * SR)
+    
+    return SR_port, x
+
+# EJEMPLO LIBRO
+
+sigma = np.array([0.20, 0.20, 0.30, 0.10, 0.30])
+SR = np.array([0.40, 0.35, 0.30, 0.70, 0.40])
+
+SR_port, x = sharpe_ratio_combinacion_2(sigma, SR)
+
+print("\nCartera 1:")
+print(f"Pesos x_i: {x.round(4)}")
+print(f"Sharpe Ratio cartera: {SR_port:.4f}")
+
+sigma = np.array([0.15, 0.15, 0.20, 0.10, 0.50])
+SR = np.array([0.10, 0.15, 0.05, 0.05, 0.90])
+
+SR_port, x = sharpe_ratio_combinacion_2(sigma, SR)
+
+print("\nCartera 2:")
+print(f"Pesos x_i: {x.round(4)}")
+print(f"Sharpe Ratio cartera: {SR_port:.4f}")
+
+# LA CARTERA 2, PESE A TENER ACTIVOS PEORES EN GENERAL
+# DOMINA A LA CARTERA 1 PORQUE EL 85,13% DEL PESO ES DEL ACTIVO 5
+
+# 6) CASO CARTERA EQUIPONDERADA + CORR CTE + COV CTE
+
+def sharpe_ratio_equiponderada_corrcte(mu, sigma, rf, rho):
+    
+    n = len(mu)
+    num = n**(-1) * np.sum(mu - rf)
+    den = sigma * np.sqrt(rho + (1/n) * (1 - rho))
+    return num / den
+
+# PROPORCIONALIDAD DEL SR CON LA MEDIA DE LOS SRi CON RGO CTE
+
+def sharpe_ratio_combinacion_media(mu, sigma, rf, rho):
+    
+    n = len(mu)
+    w = 1 / (rho + n**(-1) * (1 - rho))
+    SR_mean = (np.sum(mu - rf) / sigma) / n
+    return w * SR_mean
+
+# 7) FUNCIÓN QUE CALCULA EL NUMERO DE ACTIVOS NECESARIOS PARA MEJORAR EL SR UN W%
+
+def mejorar_sharpe(rho, mejora):
+    """
+    Calcula el número de activos necesarios para mejorar el Sharpe ratio.
+
+    Parámetros:
+    rho : Nivel de correlación entre los activos (entre 0 y 1).
+    mejora_sr : Porcentaje de mejora deseada en el Sharpe ratio (ej: 0.2 = +20%).
+
+    Retorna:
+    n : Número de activos que habría que añadir
+    """
+    n = ((1 + mejora)**2 * (1 - rho)) / (1 - rho * (1 + mejora)**2)
+    
+    if n <= 0:
+        mensaje = f"No podemos mejorar el SR para una correlación de {rho}"
+        return 0, mensaje
+    
+    n_aprox = math.ceil(n)
+    mensaje = f"Habría que añadir {n:.2f} ≈ {n_aprox} activos para mejorar el Sharpe un {100*mejora:.0f}% respecto al original"
+    return n_aprox, mensaje
+
+# EJEMPLO
+
+rho = 0.50
+mejora = 0.25
+n, msg = mejorar_sharpe(rho, mejora)
+print("\nMejora 1 SR:")
+print(msg)
+
+
+# EJEMPLO
+
+rho = 0.80
+mejora = 0.25
+n, msg = mejorar_sharpe(rho, mejora)
+print("\nMejora 2 SR:")
+print(msg)
+
+# A MENOR RHO, MÁS GRANDE ES LA MEJORA EN EL SHARPE RATIO
+# SI RHO ES MUY ALTO, LA MEJORA ES IMPERCEPTIBLE
+# PARA UN RHO > 80% LA MEJORA NO PUEDE EXCEDER MÁS DE UN 12%
+
+# 8) EJERCICIO CLÁSICO HEDGE FUNDS
+
+print("\nEjercicio Hedge Funds:")
+
+LIBOR = 0.02      
+objetivo_neto = 0.04 + LIBOR
+comisiones_mng = 0.01
+comisiones_perf = 0.10
+sigma = 0.04
+
+# RENDIMIENTO BRUTO OBJETIVO
+R_G = comisiones_mng + ((objetivo_neto - comisiones_perf * LIBOR) / (1 - comisiones_perf))
+print(f"Rendimiento bruto objetivo: LIBOR + {100*(R_G-LIBOR):.2f}%")
+
+# SHARPE RATIO OBJETIVO
+SR_obj = (R_G - LIBOR) / sigma
+print(f"Sharpe ratio objetivo de la cartera: {SR_obj:.2f}")
+
+# 9) CÁLCULO DEL FACTOR W
+
+# El factor w cuantifica cómo la diversificación entre los hedge funds 
+# mejora el Sharpe ratio de la cartera respecto a la media de los SR individuales.
+
+# w > 1 → cartera mejora el SR respecto a la media de los fondos individuales
+# w = 1 → no hay mejora, los HF se mueven completamente juntos
+# w < 1 → en teoría no pasa con correlación positiva; solo si la correlación fuese negativa muy fuerte y el modelo se ajustara
+
+def calcular_w(n, rho):
+    return 1 / np.sqrt((rho + (1 - rho) / n))
+
+n = np.array([10, 20, 30, 50, 9999])
+rho = np.array([0.0, 0.1, 0.2, 0.3, 0.5, 0.75, 0.9])
+
+RHO, N = np.meshgrid(rho, n)
+
+W = calcular_w(N, RHO)
+
+# RESULTADOS
+df_w = pd.DataFrame(W, index=n, columns=rho)
+df_w.index.name = 'n'
+df_w.columns.name = 'rho'
+
+print(df_w)
+
+# ley de diversificación perfecta: si los HF no están correlacionados, añadir más activos multiplica enormemente el Sharpe ratio de la cartera respecto a la media.
+# Con n grande y rho = 0, el SR de la cartera puede ser muy alto, casi “ilimitado” en teoría.
+# Para un número fijo de activos, w disminuye mucho a medida que aumenta la correlación
+# Con correlaciones altas, añadir más activos no mejora casi nada el SR
+
+# 10) ¿SE PUEDE ALCANZAR EL OBJETIVO DE SR = 1.36 CON SR promedio de 0.5?
+
+SR_individual = 0.5
+SR_objetivo = 1.36
+
+# Valores de n y rho
+n_values = [10, 20, 30, 50]
+rho_values = [0.0, 0.1, 0.2, 0.3, 0.5]
+
+def w_necesario(SR_objetivo, SR_individual):
+    return SR_objetivo / SR_individual
+
+w_necesario = w_necesario(SR_objetivo, SR_individual)
+print()
+print(f"Factor necesario para alcanzar SR objetivo: {w_necesario:.2f}\n")
+
+# RESULTADOS
+tabla = pd.DataFrame(index=n_values, columns=rho_values)
+
+for n in n_values:
+    for rho in rho_values:
+        w_real = calcular_w(n, rho)
+        alcanza = "Sí" if w_real >= w_necesario else "No"
+        tabla.loc[n, rho] = f"{w_real:.2f} ({alcanza})"
+
+tabla.index.name = 'n'
+tabla.columns.name = 'rho'
+
+print(tabla)
