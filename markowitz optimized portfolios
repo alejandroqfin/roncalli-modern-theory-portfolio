@@ -1,0 +1,252 @@
+# EJERCICIO 1.1. MARKOWITZ OPTIMIZED PORTFOLIOS
+
+import numpy as np
+import pandas as pd
+from scipy.optimize import minimize
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+# DATOS
+
+mus = np.array([0.10, 0.10, 0.05])
+sigmas = np.array([0.15, 0.15, 0.05])
+
+corr = np.array([
+    [1.00, 0.50, 0.20],
+    [0.50, 1.00, 0.20],
+    [0.20, 0.20, 1.00]
+])
+
+# 1) CALCULA LA CARTERA DE MÍNIMA VARIANZA (GMV)
+
+# CÁLCULO DE SIGMA
+
+S = np.diag(sigmas)
+Sigma = S @ corr @ S
+
+# CÁLCULO DE LOS PESOS GMV (FÓRMULA RONCALLI)
+
+ones = np.ones(len(sigmas))
+inv_Sigma = np.linalg.inv(Sigma)
+u = inv_Sigma @ ones
+w = u / (ones @ u)
+
+# RESULTADOS
+
+print("\nMatriz de covarianzas Σ:\n", Sigma.round(5))
+print("\nMatriz de covarianzas inversa Σ^-1:\n", inv_Sigma.round(5))
+print("\nCartera (GMV) sin restricciones:")
+print("Pesos óptimos:", w.round(4))
+print("Suma pesos:", round(w.sum(), 4))
+
+mu_p = mus @ w
+sigma_p = np.sqrt(w.T @ Sigma @ w)
+phi_p = ((ones @ inv_Sigma @ mus) - mu_p * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p**2) * (ones @ inv_Sigma @ ones))
+
+print("Rentabilidad esperada de la cartera:", round(mu_p, 4))
+print("Volatilidad de la cartera:", round(sigma_p, 4))
+print("Aversión al riesgo:", round(phi_p, 4))
+
+# 2) ENCUENTRA LA CARTERA CUYA VOLATILIDAD EX-ANTE ES 5%
+
+sigma_target1 = 0.05
+
+def funcion_objetivo(w):
+    return -mus @ w
+
+restricciones1 = (
+    {'type': 'eq', 'fun': lambda w: np.sum(w) - 1},                     
+    {'type': 'ineq', 'fun': lambda w: sigma_target1**2 - w.T @ Sigma @ w}
+)
+
+# Solucion inicial => Cartera equiponderada
+w0 = np.ones(len(sigmas)) / len(sigmas)
+
+resultado = minimize(funcion_objetivo, w0, method='SLSQP', constraints=restricciones1)
+w_opt1 = resultado.x
+mu_p1 = mus @ w_opt1
+sigma_p1 = np.sqrt(w_opt1 @ Sigma @ w_opt1)
+phi_p1 = ((ones @ inv_Sigma @ mus) - mu_p1 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p1**2) * (ones @ inv_Sigma @ ones))
+
+if resultado.success:
+    print("\nCartera con volatilidad ex-ante 5%:")
+    print("Pesos óptimos:", w_opt1.round(4))
+    print("Suma pesos:", round(w_opt1.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p1, 4))
+    print("Volatilidad de la cartera:", round(sigma_p1, 4))
+    print("Aversión al riesgo:", round(phi_p1, 4))
+else:
+    print("El solver no encontró solución:", resultado.message)
+    
+# 3) ENCUENTRA LA CARTERA CUYA VOLATILIDAD EX-ANTE ES 10%
+
+sigma_target2 = 0.10
+
+restricciones2 = (
+    {'type': 'eq', 'fun': lambda w: np.sum(w) - 1},                     
+    {'type': 'ineq', 'fun': lambda w: sigma_target2**2 - w.T @ Sigma @ w}
+)
+
+resultado2 = minimize(funcion_objetivo, w0, method='SLSQP', constraints=restricciones2)
+w_opt2 = resultado2.x
+mu_p2 = mus @ w_opt2
+sigma_p2 = np.sqrt(w_opt2 @ Sigma @ w_opt2)
+phi_p2 = ((ones @ inv_Sigma @ mus) - mu_p2 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p2**2) * (ones @ inv_Sigma @ ones))
+
+if resultado2.success:
+    print("\nCartera con volatilidad ex-ante 10%:")
+    print("Pesos óptimos:", w_opt2.round(4))
+    print("Suma pesos:", round(w_opt2.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p2, 4))
+    print("Volatilidad de la cartera:", round(sigma_p2, 4))
+    print("Aversión al riesgo:", round(phi_p2, 4))
+else:
+    print("El solver no encontró solución:", resultado2.message)
+    
+# 4) COMENTA LOS RESULTADOS
+
+# Al 5% casi todo el peso va al activo 3, que tiene la menor volatilidad individual
+# Al 10% se diversifica más y los pesos se reparten
+# La rentabilidad de la cartera2 es mayor que la cartera1 (8.70% > 5.61%)
+# El solver ha encontrado puntos de la frontera eficiente de Markowitz
+# Cuando se relaja la restricción de riesgo (de 5 % a 10 %), la cartera se aleja de la concentración en el activo más seguro
+# y se desplaza hacia una combinación más equilibrada que aumenta el rendimiento esperado.
+
+# 5) NUEVA RESTRICCIÓN: w1 >= 8%
+
+lim_inf_w1 = 0.08
+bounds = [(lim_inf_w1, 1.0), (0.0, 1.0), (0.0, 1.0)]
+
+# 5a) GMV + RESTRICCION 8%
+
+def varianza(w):
+    return w.T @ Sigma @ w
+
+restricciones3 = (
+    {'type': 'eq', 'fun': lambda w: np.sum(w) - 1}
+)
+
+resultado3 = minimize(varianza, w0, method='SLSQP', constraints=restricciones3, bounds=bounds)
+w_opt3 = resultado3.x
+mu_p3 = mus @ w_opt3
+sigma_p3 = np.sqrt(w_opt3 @ Sigma @ w_opt3)
+phi_p3 = ((ones @ inv_Sigma @ mus) - mu_p3 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p3**2) * (ones @ inv_Sigma @ ones))
+
+if resultado3.success:
+    print("\nCartera (GMV) con restriccion w1 > 8%:")
+    print("Pesos óptimos:", w_opt3.round(4))
+    print("Suma pesos:", round(w_opt3.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p3, 4))
+    print("Volatilidad ex-ante de la cartera:", round(sigma_p3, 4))
+    print("Aversión al riesgo:", round(phi_p3, 4))
+else:
+    print("El solver no encontró solución:", resultado3.message)
+    
+# 5b) CARTERA CON VOLATILIDAD EX-ANTE 5% + RESTRICCIÓN 8%
+
+resultado4 = minimize(funcion_objetivo, w0, method='SLSQP', constraints=restricciones1, bounds=bounds)
+w_opt4 = resultado4.x
+mu_p4 = mus @ w_opt4
+sigma_p4 = np.sqrt(w_opt4 @ Sigma @ w_opt4)
+phi_p4 = ((ones @ inv_Sigma @ mus) - mu_p4 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p4**2) * (ones @ inv_Sigma @ ones))
+
+if resultado.success:
+    print("\nCartera con volatilidad ex-ante 5% con restricción w1 > 8%:")
+    print("Pesos óptimos:", w_opt4.round(4))
+    print("Suma pesos:", round(w_opt4.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p4, 4))
+    print("Volatilidad de la cartera:", round(sigma_p4, 4))
+    print("Aversión al riesgo:", round(phi_p4, 4))
+else:
+    print("El solver no encontró solución:", resultado4.message)
+
+# Nota: la fórmula de phi tan solo coincide cuando la solución está en el borde de la frontera eficiente (activa)
+
+# 5c) CARTERA CON VOLATILIDAD EX-ANTE 10% + RESTRICCIÓN 8%
+
+resultado5 = minimize(funcion_objetivo, w0, method='SLSQP', constraints=restricciones2, bounds=bounds)
+w_opt5 = resultado5.x
+mu_p5 = mus @ w_opt5
+sigma_p5 = np.sqrt(w_opt5 @ Sigma @ w_opt5)
+phi_p5 = ((ones @ inv_Sigma @ mus) - mu_p5 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p5**2) * (ones @ inv_Sigma @ ones))
+
+if resultado.success:
+    print("\nCartera con volatilidad ex-ante 10% con restricción w1 > 8%:")
+    print("Pesos óptimos:", w_opt5.round(4))
+    print("Suma pesos:", round(w_opt5.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p5, 4))
+    print("Volatilidad de la cartera:", round(sigma_p5, 4))
+    print("Aversión al riesgo:", round(phi_p5, 4))
+else:
+    print("El solver no encontró solución:", resultado4.message)
+    
+# 6) FORMULA EL PROBLEMA DUAL
+
+S = np.array([[-1, 0, 0]])
+T = np.array([-0.08])
+
+def solve_dual(S, T, Sigma, mu, phi):
+    """
+    Resuelve el dual QP: min_{lam>=0} 1/2 lam' Q lam - lam' R
+    con Q = S Σ^{-1} S'  y  R = (1/phi) S Σ^{-1} mu - T
+    """
+    inv_Sigma = np.linalg.inv(Sigma)
+    gamma = 1.0 / phi
+    Q = S @ inv_Sigma @ S.T
+    R = gamma * (S @ inv_Sigma @ mu) - T
+
+    nlam = Q.shape[0]
+    funcion_dual = lambda lam: 0.5 * float(lam @ (Q @ lam)) - float(lam @ R)
+    bounds_lam = [(0.0, None)] * nlam
+    lam0 = np.zeros(nlam)
+
+    resultado = minimize(funcion_dual, lam0, method='SLSQP', bounds=bounds_lam, options={'ftol':1e-12})
+    return resultado.x, resultado.fun, resultado.message
+
+# BUCLE APLICADO A LAS 3 CARTERAS - RESOLVER DUAL
+
+carteras_duales = [
+    ('1. GMV', phi_p3),
+    ('2. sigma5', phi_p4),
+    ('3. sigma10', phi_p5)
+]
+
+rows = []
+
+for portfolios, phis in carteras_duales:
+    lam, val, msg = solve_dual(S, T, Sigma, mus, phis)
+    rows.append((portfolios, lam))
+
+
+df_dual = pd.DataFrame({name: lam for name, lam in rows}).T.round(6)
+df_dual.columns = ['Lambda1*']
+print("\nSoluciones del problema Dual (Lambdas óptimos):")
+print(df_dual)
+
+# Los multiplicadores de Lagrange cuantifican el valor marginal de relajar las restricciones.
+# Un λ* positivo indica una restricción activa y vinculante; λ* = 0 implica una restricción inactiva.
+# Por tanto, solo en las dos primeras carteras la restricción afecta realmente a la optimización.
+
+# 7) POR QUE NO HAY SOLUCION PARA LA CARTERA EX-ANTE 5% CON W1 > 20%?
+
+new_lim_inf_w1 = 0.20
+bounds = [(new_lim_inf_w1, 1.0), (0.0, 1.0), (0.0, 1.0)]
+
+resultado6 = minimize(funcion_objetivo, w0, method='SLSQP', constraints=restricciones1, bounds=bounds)
+w_opt6 = resultado6.x
+mu_p6 = mus @ w_opt6
+sigma_p6 = np.sqrt(w_opt6 @ Sigma @ w_opt6)
+phi_p6 = ((ones @ inv_Sigma @ mus) - mu_p6 * (ones @ inv_Sigma @ ones)) / (1 - (sigma_p6**2) * (ones @ inv_Sigma @ ones))
+
+if resultado.success:
+    print("\nCartera con volatilidad ex-ante 5% con restricción w1 > 20%:")
+    print("Pesos óptimos:", w_opt6.round(4))
+    print("Suma pesos:", round(w_opt6.sum(), 4))
+    print("Rentabilidad esperada de la cartera:", round(mu_p6, 4))
+    print("Volatilidad de la cartera:", round(sigma_p6, 4))
+    print("Aversión al riesgo:", round(phi_p6, 4))
+else:
+    print("El solver no encontró solución:", resultado6.message)
+    
+# Vemos como la volatilidad de esta cartera supera el limite del 5% (5,46%)
+
