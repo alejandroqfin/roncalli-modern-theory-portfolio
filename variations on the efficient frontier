@@ -1,0 +1,352 @@
+# EJERCICIO 1.2. VARIATIONS ON THE EFFICIENT FRONTIER
+
+# MINIMIZE FUNCIONA SOLO SI EL PROBLEMA ES CONVEXO (gamma > 0)
+# ESTE PROBLEMA TIENE SOLUCIÓN ANALÍTICA CERRADA (CPO = 0 Y DESPEJAR X)
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+plt.style.use('dark_background')
+
+# DATOS
+
+mus = np.array([0.05, 0.06, 0.08, 0.06])
+sigmas = np.array([0.15, 0.20, 0.25, 0.30])
+
+corr = np.array([
+    [1.00, 0.10, 0.40, 0.50],
+    [0.10, 1.00, 0.70, 0.40],
+    [0.40, 0.70, 1.00, 0.80],
+    [0.50, 0.40, 0.80, 1.00]
+])
+
+# GAMMA = PARÁMETRO DE AVERSIÓN AL RIESGO
+
+gammas = np.array([-1, -0.5, -0.25, 0, 0.25, 0.5, 1, 2])
+
+# COV-MATRIX (SIGMA)
+
+Diag = np.diag(sigmas)
+Sigma = Diag @ corr @ Diag
+invSigma = np.linalg.inv(Sigma)
+
+# FUNCIONES
+
+def portfolio_return(x):
+    return x @ mus
+
+def funcion_objetivo(x):
+    return -(x @ mus)
+
+def portfolio_varianza(x): 
+    return x @ Sigma @ x
+
+def portfolio_volatility(x):
+    return np.sqrt(x @ Sigma @ x)
+
+def portfolio_sharpe(mu, sigma):
+    return (mu - rf) / sigma
+
+# CARTERA EQUIPONDERADA
+
+n = len(mus)
+ones = np.ones(n)
+x_equiponderada = ones / n
+r_equiponderada = portfolio_return(x_equiponderada)
+vol_equiponderada = portfolio_volatility(x_equiponderada)
+
+# 1) REPRESENTA LA FRONTERA EFICIENTE
+
+# SOLUCIÓN ANALÍTICA:
+    
+a = ones @ (invSigma @ mus)
+b = ones @ (invSigma @ ones)
+
+resultados = []
+
+for gamma in gammas:
+    if gamma == 0:
+        x = np.zeros(n)
+        x[np.argmax(mus)] = 1.0
+    else:
+        lam = (a - gamma) / b
+        x = (1/gamma) * (invSigma @ (mus - lam * ones))
+    mu_opt = portfolio_return(x)
+    sigma_opt = portfolio_volatility(x)
+    resultados.append(np.concatenate([x, [mu_opt, sigma_opt]]))
+
+# TABLA DE RESULTADOS
+
+filas = [f'x*{i+1}' for i in range(n)] + ['mu', 'sigma']
+tabla = pd.DataFrame(np.array(resultados).T, index=filas, columns=[f'gamma={gamma}' for gamma in gammas])
+tabla = tabla * 100
+print("\nCarteras:")
+print(tabla.round(2))
+
+# GRÁFICO FRONTERA EFICIENTE
+
+r_min = mus.min()*0.4
+r_max = mus.max()*1.3
+r_target = np.linspace(r_min, r_max, 80)
+
+ef_volatilidades = []
+ef_rendimientos = []
+
+for r in r_target:
+    cons = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x, r=r: x @ mus - r}
+    )
+    resultado = minimize(portfolio_varianza, x_equiponderada, method='SLSQP', constraints=cons,
+                   options={'maxiter':1000, 'ftol':1e-12})
+    if resultado.success:
+        ef_volatilidades.append(np.sqrt(resultado.fun))
+        ef_rendimientos.append(r)
+
+# RESTRINGIR VENTAS EN CORTO (opcional)
+long_only = tuple((0, 1) for _ in range(n))
+
+# 2) CALCULA LA CARTERA GMV
+
+cons1 = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1},)
+resultado_GMV = minimize(portfolio_varianza, x_equiponderada, method='SLSQP', constraints=cons1, bounds=long_only)
+x_GMV = resultado_GMV.x
+r_GMV = x_GMV @ mus
+vol_GMV = np.sqrt(x_GMV @ Sigma @ x_GMV)
+
+# GRÁFICO FRONTERA EFICIENTE
+
+plt.figure(figsize=(8,6))
+plt.plot(np.array(ef_volatilidades)*100, np.array(ef_rendimientos)*100, lw=2, label='Frontera eficiente')
+plt.scatter(vol_GMV*100, r_GMV*100, marker='D', s=60, label='GMV')
+plt.scatter(vol_equiponderada*100, r_equiponderada*100, marker='s', s=60, label='Equiponderada')
+plt.xlabel('Volatilidad (%)')
+plt.ylabel('Rentabilidad esperada (%)')
+plt.title('Frontera eficiente')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+# 3) CALCULA LA CARTERA OPTIMA PARA SIGMA* = 10%, 15% y 20%
+
+sigmas = np.array([0.10, 0.15, 0.20])
+
+rows = [f'x*{i+1}' for i in range(n)] + ['mu_p', 'sigma_p']
+results = []
+
+for sigma in sigmas:
+    cons = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x, sigma=sigma: x @ Sigma @ x - sigma**2}
+    )
+    resultado2 = minimize(funcion_objetivo, x_equiponderada, method='SLSQP', constraints=cons, bounds=long_only, options={'maxiter':1000})
+    if resultado2.success:
+        x_opt = resultado2.x
+        mu_opt = portfolio_return(x_opt)
+    else:
+        x_opt = np.repeat(np.nan, n)
+        mu_opt = np.nan
+    results.append(np.concatenate([x_opt, [mu_opt, sigma]]))
+    
+tabla2 = pd.DataFrame(np.array(results).T, index=rows,
+                         columns=[f'sigma*={int(100*s)}%' for s in sigmas])
+tabla2 = tabla2 * 100
+print("\nCarteras óptimas (con sigma*):")
+print(tabla2.round(3))
+
+# 4) PORTFOLIOS X(ALPHA)
+
+x1 = x_GMV
+x2 = x_opt
+
+alphas = np.array([-0.5, -0.25, 0.0, 0.1, 0.2, 0.5, 0.7, 1.0])
+
+def portfolio_alpha(x1, x2, alpha):
+    return (1 - alpha) * x1 + alpha * x2
+
+filas = [f'x*{i+1}' for i in range(n)] + ['mu', 'sigma']
+cols = [f'α={a}' for a in alphas]
+data = {}
+
+mus_alpha = []
+vols_alpha= []
+
+for a in alphas:
+    x = portfolio_alpha(x1, x2, a)
+    mu_alpha = portfolio_return(x)
+    vol_alpha = portfolio_volatility(x)
+    mus_alpha.append(mu_alpha)
+    vols_alpha.append(vol_alpha)
+    data[f'α={a}'] = list(x) + [mu_alpha, vol_alpha]
+
+
+tabla_alpha = pd.DataFrame(data, index=filas) * 100
+
+print("\nCarteras alpha:")
+print(tabla_alpha.round(3))
+
+# GRÁFICO CARTERAS ALPHA
+
+plt.figure(figsize=(8,6))
+plt.plot(np.array(ef_volatilidades)*100, np.array(ef_rendimientos)*100, lw=2, label='Frontera eficiente', color='cyan')
+plt.scatter(np.array(vols_alpha)*100, np.array(mus_alpha)*100, marker='h', s=60, color='red', label='Carteras alpha')
+plt.scatter(vol_GMV*100, r_GMV*100, marker='s', s=80, color='lime', label='x1 = GMV')
+plt.scatter(portfolio_volatility(x2)*100, portfolio_return(x2)*100, marker='s', s=80, color='magenta', label='x2 = Óptima')
+
+plt.xlabel('Volatilidad (%)')
+plt.ylabel('Rentabilidad esperada (%)')
+plt.title('Frontera eficiente y carteras alpha')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# 5) INCLUIMOS UN 5º ACTIVO (RISK-FREE)
+
+mus = np.array([0.05, 0.06, 0.08, 0.06, 0.03])
+sigmas = np.array([0.15, 0.20, 0.25, 0.30, 0.00])
+
+corr = np.array([
+    [1.00, 0.10, 0.40, 0.50, 0.00],
+    [0.10, 1.00, 0.70, 0.40, 0.00],
+    [0.40, 0.70, 1.00, 0.80, 0.00],
+    [0.50, 0.40, 0.80, 1.00, 0.00],
+    [0.00, 0.00, 0.00, 0.00, 1.00]
+])
+
+# COV-MATRIX (SIGMA)
+
+Diag = np.diag(sigmas)
+Sigma = Diag @ corr @ Diag
+invSigma = np.linalg.pinv(Sigma)
+
+# NO ES INVERTIBLE
+
+# REDEFINIMOS CARTERA EQUIPONDERADA (1/5)
+
+n = len(mus)
+ones = np.ones(n)
+x_equiponderada = ones / n
+r_equiponderada = portfolio_return(x_equiponderada)
+vol_equiponderada = portfolio_volatility(x_equiponderada)
+
+# RESTRICCIÓN LONG-ONLY (OPCIONAL)
+
+long_only = tuple((0.0, 1.0) for _ in range(n))
+
+# PUNTOS DEL GRÁFICO (MU)
+
+r_min = mus.min()*0.2
+r_max = mus.max()*1.8
+r_targets = np.linspace(r_min, r_max, 80)
+
+ef_volatilidades = []
+ef_rendimientos = []
+ef_pesos = []
+
+for mu_p in r_targets:
+    cons = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1.0},
+        {'type': 'eq', 'fun': lambda x, mu_p=mu_p: x @ mus - mu_p}
+    )
+    res = minimize(portfolio_varianza, x_equiponderada, method='SLSQP',
+                   bounds=long_only, constraints=cons,
+                   options={'maxiter':1000, 'ftol':1e-12})
+    if res.success:
+        ef_pesos.append(res.x)
+        ef_rendimientos.append(mu_p)
+        ef_volatilidades.append(np.sqrt(res.fun))
+
+# CALCULO LA NUEVA CATRERA GMV AHORA HABIENDO RF
+
+cons1 = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1.0},)
+resultado_GMV = minimize(portfolio_varianza, x_equiponderada, method='SLSQP',bounds=long_only, constraints=cons1,options={'maxiter':1000})
+x_GMV = resultado_GMV.x
+r_GMV = x_GMV @ mus
+vol_GMV = np.sqrt(x_GMV @ Sigma @ x_GMV)
+
+# ACTIVO LIBRE DE RIESGO (RF)
+
+rf = mus[-1]
+vol_rf = sigmas[-1]
+
+# GRÁFICO
+
+plt.figure(figsize=(8,6))
+plt.plot(np.array(ef_volatilidades)*100, np.array(ef_rendimientos)*100, lw=2, label='Frontera eficiente')
+plt.scatter(vol_GMV*100, rf*100, marker='D', s=70, label='GMV', color='lime')
+plt.scatter(vol_equiponderada*100, r_equiponderada*100, marker='s', s=70, label='Equiponderada', color='orange')
+plt.scatter(vol_rf*100, rf*100, marker='o', s=70, label='Risk-free', color='cyan')
+
+plt.xlabel('Volatilidad (%)')
+plt.ylabel('Rentabilidad esperada (%)')
+plt.title('Frontera eficiente (incluye risk-free) - long-only')
+plt.grid(True)
+plt.legend()
+plt.show()
+    
+# 6) CALCULO DE LA CARTERA TANGENTE
+
+# SEPARAMOS ACTIVOS RIESGOSOS DE RF
+
+mus_riesgosos = mus[:-1]
+sigmas_riesgosos = sigmas[:-1]
+
+corr_riesgosos = np.array([
+    [1.00, 0.10, 0.40, 0.50],
+    [0.10, 1.00, 0.70, 0.40],
+    [0.40, 0.70, 1.00, 0.80],
+    [0.50, 0.40, 0.80, 1.00]
+])
+
+Diag = np.diag(sigmas_riesgosos)
+Sigma = Diag @ corr_riesgosos @ Diag
+invSigma = np.linalg.inv(Sigma)
+
+# CARTERA TANGENTE DE ACTIVOS RIESGOSOS
+
+v = invSigma @ (mus_riesgosos - rf * np.ones(len(mus_riesgosos)))
+sum_v = v.sum()
+x_tangente = v / sum_v
+mu_tangente = x_tangente @ mus_riesgosos
+sigma_tangente = np.sqrt(x_tangente @ Sigma @ x_tangente)
+sharpe_tangente = portfolio_sharpe(mu_tangente, sigma_tangente)
+
+# TABLA CARTERA TANGENTE
+
+datos = np.append(x_tangente, [mu_tangente, sigma_tangente, sharpe_tangente])
+filas = [f"x*{i+1}" for i in range(len(mus_riesgosos))] + ["mu", "sigma", "sharpe"]
+tabla_tangente = pd.DataFrame(datos[:, np.newaxis], index=filas, columns=["Cartera Tangente"]) * 100
+
+print("\nCartera tangente (de mercado):")
+print(tabla_tangente.round(3))
+
+# TEOREMA DE SEPARACIÓN DE TOBIN
+
+gammas = [0.25, 0.5]
+
+resultados = []
+
+for gamma in gammas:
+    
+    y_star = (mu_tangente - rf) / (gamma * sigma_tangente**2)
+    x_riesgosos = y_star * x_tangente
+    x_rf = 1 - y_star
+
+    x_tobin = np.append(x_riesgosos, x_rf)
+    mu_tobin = x_tobin @ mus
+    sigma_tobin = abs(y_star) * sigma_tangente
+    sharpe_tobin = portfolio_sharpe(mu_tobin, sigma_tobin)
+
+    resultados.append(np.concatenate([x_tobin, [mu_tobin, sigma_tobin, sharpe_tobin, y_star]]))
+
+# RESULTADOS
+
+filas = [f'x*{i+1}' for i in range(len(mus))] + ['mu', 'sigma', 'sharpe', 'y*']
+columnas = [f'Gamma={g}' for g in gammas]
+tabla_tobin = pd.DataFrame(np.array(resultados).T, index=filas, columns=columnas) * 100
+
+print("\nCarteras completas (+RF):")
+print(tabla_tobin.round(3))
